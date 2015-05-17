@@ -1,0 +1,138 @@
+<?php
+
+	/**
+	 * Implements hook_menu().
+	 *
+	 * Advertise extra menu items and urls available.
+	 */
+	function cryptoaccounts_menu() {
+		$items=array();
+
+		$items["user/%user/account"]=array(
+			"title"=>t("Account"),
+			"page callback"=>"cryptoaccounts_account_tab",
+			"page arguments"=>array(1),
+			"access callback"=>TRUE,
+			"type"=>MENU_LOCAL_TASK,
+			"weight"=>1000
+		);
+
+		/*$items["user/%user/account/history"]=array(
+			"title"=>t("History"),
+			"page callback"=>"cryptoaccounts_account_history",
+			"page arguments"=>array(1),
+			"access callback"=>TRUE,
+			"type"=>MENU_LOCAL_TASK,
+			"weight"=>1
+		);
+
+		$items["user/%user/account/deposit"]=array(
+			"title"=>t("Deposit"),
+			"page callback"=>"cryptoaccounts_account_deposit",
+			"page arguments"=>array(1),
+			"access callback"=>TRUE,
+			"type"=>MENU_LOCAL_TASK,
+			"weight"=>2
+		);
+
+		$items["user/%user/account/withdraw"]=array(
+			"title"=>t("Withdraw"),
+			"page callback"=>"cryptoaccounts_account_withdraw",
+			"page arguments"=>array(1),
+			"access callback"=>TRUE,
+			"type"=>MENU_LOCAL_TASK,
+			"weight"=>3
+		);*/
+
+		return $items;
+	}
+
+	/**
+	 * Show the account tab.
+	 */
+	function cryptoaccounts_account_tab() {
+		drupal_add_library('system', 'drupal.collapse');
+
+		return array(
+			"container"=>array(
+				"#type"=>"container",
+				"#attributes"=>array(
+					"class"=>"profile"
+				),
+				"balance"=>array(
+					"#type"=>"user_profile_category",
+					"#title"=>"Bitcoin",
+					"bal"=>array(
+						"#type"=>"user_profile_item",
+						"#title"=>"Balance",
+						"#markup"=>"BTC 11.123123"
+					)
+				),
+
+				"deposit"=>array(
+					"#type"=>"fieldset",
+					"#title"=>"Deposit",
+					"#description"=>"use this to blablla..",
+					"#attributes" => array('class' => array('collapsible'))
+				),
+
+				"withdraw"=>array(
+					"#type"=>"fieldset",
+					"#title"=>"Withdraw",
+					"#description"=>"use this to blablla..",
+					"#attributes" => array('class' => array('collapsible','collapsed'))
+				),
+
+				"history"=>array(
+					"#type"=>"fieldset",
+					"#title"=>"History",
+					"#description"=>"use this to blablla..",
+					"#attributes" => array('class' => array('collapsible','collapsed'))
+				),
+			)
+		);
+	}
+
+	/**
+	 * Account history.
+	 */
+	function cryptoaccounts_account_history() {
+/*		$table = array(
+			'#theme' => 'table',
+			'#header' => array(t('Column1'), t('Column2')),
+			'#rows' => array(
+				array('row1col1', 'row2col2'),
+				array('row2col1', 'row2col2'),
+			),
+		);*/
+
+		return $content;
+	}
+
+	/**
+	 * Deposit to account.
+	 */
+/*	function cryptoaccounts_account_deposit() {
+		$content=array();
+
+		$content["something"]=array(
+			"#markup" => t("This is the deposit tab")
+		);
+
+		return render($content);
+	}*/
+
+	/**
+	 * Withdraw from account.
+	 */
+/*	function cryptoaccounts_account_withdraw() {
+		$content=array();
+
+		$content["test"]=array(
+			"#type"=>"fieldset",
+			"#title"=>"hello",
+			"#collapsible"=>TRUE,
+		);
+
+		return $content;
+	}*/

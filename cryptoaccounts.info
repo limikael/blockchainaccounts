@@ -1,0 +1,4 @@
+name = Crypto Accounts
+description = Be a crypto bank
+core = 7.x
+configure = admin/modules/cryptoaccounts
