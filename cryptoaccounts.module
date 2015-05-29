@@ -10,20 +10,11 @@
 
 		$items["user/%user/account"]=array(
 			"title"=>t("Account"),
-			"page callback"=>"cryptoaccounts_account_tab",
+			"page callback"=>"cryptoaccounts_account_deposit",
 			"page arguments"=>array(1),
 			"access callback"=>TRUE,
 			"type"=>MENU_LOCAL_TASK,
 			"weight"=>1000
-		);
-
-		/*$items["user/%user/account/history"]=array(
-			"title"=>t("History"),
-			"page callback"=>"cryptoaccounts_account_history",
-			"page arguments"=>array(1),
-			"access callback"=>TRUE,
-			"type"=>MENU_LOCAL_TASK,
-			"weight"=>1
 		);
 
 		$items["user/%user/account/deposit"]=array(
@@ -31,80 +22,45 @@
 			"page callback"=>"cryptoaccounts_account_deposit",
 			"page arguments"=>array(1),
 			"access callback"=>TRUE,
-			"type"=>MENU_LOCAL_TASK,
-			"weight"=>2
+			"type"=>MENU_DEFAULT_LOCAL_TASK,
+			"weight"=>1
 		);
 
 		$items["user/%user/account/withdraw"]=array(
 			"title"=>t("Withdraw"),
-			"page callback"=>"cryptoaccounts_account_withdraw",
+			"page callback"=>"drupal_get_form",
+			"page arguments"=>array("cryptoaccounts_account_withdraw_form"),
+			"access callback"=>TRUE,
+			"type"=>MENU_LOCAL_TASK,
+			"weight"=>2
+		);
+
+		$items["user/%user/account/history"]=array(
+			"title"=>t("History"),
+			"page callback"=>"cryptoaccounts_account_history",
 			"page arguments"=>array(1),
 			"access callback"=>TRUE,
 			"type"=>MENU_LOCAL_TASK,
 			"weight"=>3
-		);*/
+		);
 
 		return $items;
-	}
-
-	/**
-	 * Show the account tab.
-	 */
-	function cryptoaccounts_account_tab() {
-		drupal_add_library('system', 'drupal.collapse');
-
-		return array(
-			"container"=>array(
-				"#type"=>"container",
-				"#attributes"=>array(
-					"class"=>"profile"
-				),
-				"balance"=>array(
-					"#type"=>"user_profile_category",
-					"#title"=>"Bitcoin",
-					"bal"=>array(
-						"#type"=>"user_profile_item",
-						"#title"=>"Balance",
-						"#markup"=>"BTC 11.123123"
-					)
-				),
-
-				"deposit"=>array(
-					"#type"=>"fieldset",
-					"#title"=>"Deposit",
-					"#description"=>"use this to blablla..",
-					"#attributes" => array('class' => array('collapsible'))
-				),
-
-				"withdraw"=>array(
-					"#type"=>"fieldset",
-					"#title"=>"Withdraw",
-					"#description"=>"use this to blablla..",
-					"#attributes" => array('class' => array('collapsible','collapsed'))
-				),
-
-				"history"=>array(
-					"#type"=>"fieldset",
-					"#title"=>"History",
-					"#description"=>"use this to blablla..",
-					"#attributes" => array('class' => array('collapsible','collapsed'))
-				),
-			)
-		);
 	}
 
 	/**
 	 * Account history.
 	 */
 	function cryptoaccounts_account_history() {
-/*		$table = array(
+		$content=cryptoaccounts_create_tab_content("History");
+
+		$content["history"]=array(
 			'#theme' => 'table',
-			'#header' => array(t('Column1'), t('Column2')),
+			'#header' => array(t('Transaction'), t('Time'), t('Amount'), t('Balance'), t('Status')),
 			'#rows' => array(
-				array('row1col1', 'row2col2'),
-				array('row2col1', 'row2col2'),
+				array('row1col1', 'row2col2', 'row1col1', 'row2col2', 'row1col1'),
+				array('row2col1', 'row2col2', 'row1col1', 'row2col2', 'row1col1'),
 			),
-		);*/
+		);
 
 		return $content;
 	}
@@ -112,27 +68,89 @@
 	/**
 	 * Deposit to account.
 	 */
-/*	function cryptoaccounts_account_deposit() {
-		$content=array();
+	function cryptoaccounts_account_deposit() {
+		$content=cryptoaccounts_create_tab_content("Deposit");
 
-		$content["something"]=array(
-			"#markup" => t("This is the deposit tab")
+		$content["container"]["category"]["deposit"]=array(
+			"#type"=>"user_profile_item",
+			"#title"=>"Current Balance",
+			"#markup"=>"BTC 11.123123"
 		);
 
-		return render($content);
-	}*/
+		return $content;
+	}
 
 	/**
 	 * Withdraw from account.
 	 */
-/*	function cryptoaccounts_account_withdraw() {
-		$content=array();
+	function cryptoaccounts_account_withdraw_form() {
+		$form=cryptoaccounts_create_tab_content("Withraw");
 
-		$content["test"]=array(
-			"#type"=>"fieldset",
-			"#title"=>"hello",
-			"#collapsible"=>TRUE,
+		$form["address"]=array(
+			"#type"=>"textfield",
+			"#title"=>"Address",
+			"#description"=>"Enter the bitcoin address to withdraw to",
+			"#required"=>TRUE
+		);
+
+		$form["amount"]=array(
+			"#type"=>"textfield",
+			"#title"=>"Amount",
+			"#description"=>"Enter the amount you want to withdraw",
+			"#required"=>TRUE
+		);
+		
+		$form["withdraw_button"]=array(
+			"#type"=>"submit",
+			"#value"=>t("Withdraw")
+		);
+
+		$form["#validate"]=array("cryptoaccounts_account_withdraw_validate");
+		$form["#submit"]=array("cryptoaccounts_account_withdraw_submit");
+
+		return $form;
+	}
+
+	/**
+	 * Validate withdrawal request.
+	 */
+	function cryptoaccounts_account_withdraw_validate($form, &$form_state) {
+		//form_set_error("amount","You don't have any money");
+	}
+
+	/**
+	 * Process withdrawal request.
+	 */
+	function cryptoaccounts_account_withdraw_submit($form, &$form_state) {
+		drupal_set_message(
+			"Your withdrawal request has been received. ".
+			"Check progress on your account history page"
+		);
+	}
+
+	/**
+	 * Common things.
+	 */
+	function cryptoaccounts_create_tab_content($title) {
+		$content=array(
+			"container"=>array(
+				"#type"=>"container",
+				"#attributes"=>array(
+					"class"=>array("profile")
+				),
+
+				"balance"=>array(
+					"#type"=>"user_profile_item",
+					"#title"=>"Current Balance",
+					"#markup"=>"BTC 11.123123"
+				),
+
+				"category"=>array(
+					"#type"=>"user_profile_category",
+					"#title"=>$title,
+				),
+			)
 		);
 
 		return $content;
-	}*/
+	}

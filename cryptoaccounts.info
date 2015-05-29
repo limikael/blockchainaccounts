@@ -1,4 +1,4 @@
 name = Crypto Accounts
-description = Be a crypto bank
+description = A bank for crypto currency
 core = 7.x
 configure = admin/modules/cryptoaccounts
