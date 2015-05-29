@@ -71,10 +71,9 @@
 	function cryptoaccounts_account_deposit() {
 		$content=cryptoaccounts_create_tab_content("Deposit");
 
-		$content["container"]["category"]["deposit"]=array(
-			"#type"=>"user_profile_item",
-			"#title"=>"Current Balance",
-			"#markup"=>"BTC 11.123123"
+		$content["deposit_address"]=array(
+			"#url"=>"hello",
+			"#markup"=>"hello world",
 		);
 
 		return $content;
