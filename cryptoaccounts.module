@@ -1,6 +1,34 @@
 <?php
 
 	/**
+	 * Enable.
+	 */
+	function cryptoaccounts_enable() {
+/*		if (!field_info_field("field_cryptoaccounts_balance")) {
+			$field=array(
+				"field_name"=>"field_cryptoaccounts_balance",
+				"type"=>"number_integer",
+			);
+
+			field_create_field($field);
+		}
+
+		if (!field_info_instance("user","field_cryptoaccounts_balance","user")) {
+			$instance=array(
+				"field_name"=>"field_cryptoaccounts_balance",
+				"entity_type"=>"user",
+				"bundle"=>"user",
+				"label"=>"Bitcoin Balance",
+				"widget"=>array(
+					"type"=>"number_integer"
+				)
+			);
+
+			field_create_instance($instance);
+		}*/
+	}
+
+	/**
 	 * Implements hook_menu().
 	 *
 	 * Advertise extra menu items and urls available.
@@ -8,6 +36,7 @@
 	function cryptoaccounts_menu() {
 		$items=array();
 
+		// Account management pages on user profile.
 		$items["user/%user/account"]=array(
 			"title"=>t("Account"),
 			"page callback"=>"cryptoaccounts_account_deposit",
@@ -44,7 +73,66 @@
 			"weight"=>3
 		);
 
+		// Configuration section on the configuration page.
+		$items['admin/config/cryptoaccounts']=array(
+			'title' => 'Cryptoaccounts',
+			'description' => 'Cryptoaccounts Configuration Section',
+			'position' => 'right',
+			'weight' => -100,
+			'page callback' => 'system_admin_menu_block_page',
+			'access arguments' => array('administer site configuration'),
+			'file' => 'system.admin.inc',
+			'file path' => drupal_get_path('module', 'system'),
+		);
+
+		// Configuration page, accessible both from the 
+		// configuration and from the modules page. 
+		$items["admin/modules/cryptoaccounts"] = $items['admin/config/cryptoaccounts/item'] = array(
+			'title' => 'Cryptoaccounts',
+			'description' => 'Cryptoaccounts Configuration',
+			'page callback' => 'drupal_get_form',
+			'access arguments' => array('access administration pages'),
+			'page arguments' => array('cryptoaccounts_config_form'),
+			'type'=>MENU_NORMAL_ITEM,
+		);
+
 		return $items;
+	}
+
+	/**
+	 * Configuration form.
+	 */
+	function cryptoaccounts_config_form($form, &$form_state) {
+		$form["cryptoaccounts_wallet_id"]=array(
+			'#type' => 'textfield',
+			'#title' => t('Wallet Id'),
+			'#default_value' => variable_get('cryptoaccounts_wallet_id', ""),
+			'#description' => t('Your wallet id at blockchain.info, or mocked url for testing.'),
+		);
+
+		$form["cryptoaccounts_wallet_password"]=array(
+			'#type' => 'textfield',
+			'#title' => t('Wallet Password'),
+			'#default_value' => variable_get('cryptoaccounts_wallet_password', ""),
+			'#description' => t('Your wallet password at blockchain.info.'),
+		);
+
+		$notificationUrl=url("hello",array(
+			"absolute"=>TRUE
+		));
+
+		$t=
+			"<div class='form-item'>".
+			"<b>Notification Url</b><br/>".
+			"<input size='60' type='text' value='$notificationUrl' class='form-text' disabled/>".
+			"<div class='description'>Configure blockchain.info to use this for wallet notifications</div>".
+			"</div>";
+
+		$form["netpoker_gameplay_server_info"]=array(
+			"#markup"=>$t
+		);
+
+		return system_settings_form($form);
 	}
 
 	/**
@@ -69,11 +157,30 @@
 	 * Deposit to account.
 	 */
 	function cryptoaccounts_account_deposit() {
+		drupal_add_js(drupal_get_path("module","cryptoaccounts")."/jquery.qrcode-0.12.0.min.js");
+
 		$content=cryptoaccounts_create_tab_content("Deposit");
 
-		$content["deposit_address"]=array(
-			"#url"=>"hello",
-			"#markup"=>"hello world",
+		$content["container"]["deposit_address"]=array(
+			"#type"=>"user_profile_item",
+			"#title"=>"Deposit Address",
+			"#markup"=>l("asdfasdsdaf","bitcoin://wfawefawfawefawef"),
+		);
+
+		$vars=array();
+		$templatePath=drupal_get_path("module","cryptoaccounts")."/depositaddress.tpl.php";
+		$qrContent=theme_render_template($templatePath,$vars);
+
+		$content["deposit_qrcode"]=array(
+			"#markup"=>$qrContent,
+		);
+
+		$content["deposit_help"]=array(
+			"#type"=>"markup",
+			"#markup"=>
+				"<br>Send bitcoins to the address above in order to fund your account.<br/>".
+				"The funds will be available in your account after 3 confirmations and you.<br/>".
+				"Can check the progress of the confirmations on the account history page."
 		);
 
 		return $content;
@@ -98,7 +205,7 @@
 			"#description"=>"Enter the amount you want to withdraw",
 			"#required"=>TRUE
 		);
-		
+
 		$form["withdraw_button"]=array(
 			"#type"=>"submit",
 			"#value"=>t("Withdraw")
