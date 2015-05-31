@@ -1,31 +1,95 @@
 <?php
 
+	require_once __DIR__."/utils/BlockchainWallet.php";
+	require_once __DIR__."/utils/CurlUtil.php";
+
 	/**
 	 * Enable.
 	 */
-	function cryptoaccounts_enable() {
-/*		if (!field_info_field("field_cryptoaccounts_balance")) {
+	function blockchainaccounts_enable() {
+		if (!field_info_field("field_blockchainaccounts_balance")) {
 			$field=array(
-				"field_name"=>"field_cryptoaccounts_balance",
-				"type"=>"number_integer",
+				"field_name"=>"field_blockchainaccounts_balance",
+				"type"=>"number_decimal",
 			);
 
 			field_create_field($field);
 		}
 
-		if (!field_info_instance("user","field_cryptoaccounts_balance","user")) {
+		if (!field_info_instance("user","field_blockchainaccounts_balance","user")) {
 			$instance=array(
-				"field_name"=>"field_cryptoaccounts_balance",
+				"field_name"=>"field_blockchainaccounts_balance",
 				"entity_type"=>"user",
 				"bundle"=>"user",
-				"label"=>"Bitcoin Balance",
-				"widget"=>array(
-					"type"=>"number_integer"
-				)
+				"label"=>"Bitcoin Balance"
 			);
 
 			field_create_instance($instance);
-		}*/
+		}
+
+		if (!field_info_field("field_blockchainaccounts_address")) {
+			$field=array(
+				"field_name"=>"field_blockchainaccounts_address",
+				"type"=>"text",
+			);
+
+			field_create_field($field);
+		}
+
+		if (!field_info_instance("user","field_blockchainaccounts_address","user")) {
+			$instance=array(
+				"field_name"=>"field_blockchainaccounts_address",
+				"entity_type"=>"user",
+				"bundle"=>"user",
+				"label"=>"Bitcoin Address"
+			);
+
+			field_create_instance($instance);
+		}
+
+		if (!variable_get("blockchainaccounts_notification_key"))
+			variable_set("blockchainaccounts_notification_key",md5(rand().microtime()));
+
+		if (!variable_get("blockchainaccounts_required_confirmations"))
+			variable_set("blockchainaccounts_required_confirmations",2);
+
+		if (!db_table_exists("blockchainaccounts_transactions")) {
+			db_create_table("blockchainaccounts_transactions",array(
+				"description"=>"Transactions",
+				"fields"=>array(
+					"id"=>array("type"=>"serial","not null"=>"true"),
+					"label"=>array("type"=>"varchar","length"=>255),
+					"from_entity_type"=>array("type"=>"varchar","length"=>32),
+					"from_entity_id"=>array("type"=>"int"),
+					"from_balance"=>array("type"=>"int"),
+					"to_entity_type"=>array("type"=>"varchar","length"=>32),
+					"to_entity_id"=>array("type"=>"int"),
+					"to_balance"=>array("type"=>"int"),
+					"transaction_hash"=>array("type"=>"varchar","length"=>255),
+					"confirmations"=>array("type"=>"int"),
+					"amount"=>array("type"=>"int"),
+					"state"=>array("type"=>"varchar","length"=>32),
+					"timestamp"=>array("type"=>"int")
+				),
+
+				"indexes"=>array(
+					"from"=>array("from_entity_type","from_entity_id"),
+					"to"=>array("to_entity_type","to_entity_id"),
+					"transaction_hash"=>array("transaction_hash"),
+				),
+
+				"primary key"=>array("id")
+			));
+		}
+	}
+
+	/**
+	 * Field access.
+	 * Don't allow direct access to the balance field.
+	 */
+	function blockchainaccounts_field_access($op, $field, $type, $entity) {
+		if ($field["field_name"]=="field_blockchainaccounts_balance")
+			return FALSE;
 	}
 
 	/**
@@ -33,13 +97,13 @@
 	 *
 	 * Advertise extra menu items and urls available.
 	 */
-	function cryptoaccounts_menu() {
+	function blockchainaccounts_menu() {
 		$items=array();
 
 		// Account management pages on user profile.
 		$items["user/%user/account"]=array(
 			"title"=>t("Account"),
-			"page callback"=>"cryptoaccounts_account_deposit",
+			"page callback"=>"blockchainaccounts_account_deposit",
 			"page arguments"=>array(1),
 			"access callback"=>TRUE,
 			"type"=>MENU_LOCAL_TASK,
@@ -48,7 +112,7 @@
 
 		$items["user/%user/account/deposit"]=array(
 			"title"=>t("Deposit"),
-			"page callback"=>"cryptoaccounts_account_deposit",
+			"page callback"=>"blockchainaccounts_account_deposit",
 			"page arguments"=>array(1),
 			"access callback"=>TRUE,
 			"type"=>MENU_DEFAULT_LOCAL_TASK,
@@ -58,7 +122,7 @@
 		$items["user/%user/account/withdraw"]=array(
 			"title"=>t("Withdraw"),
 			"page callback"=>"drupal_get_form",
-			"page arguments"=>array("cryptoaccounts_account_withdraw_form"),
+			"page arguments"=>array("blockchainaccounts_account_withdraw_form"),
 			"access callback"=>TRUE,
 			"type"=>MENU_LOCAL_TASK,
 			"weight"=>2
@@ -66,7 +130,7 @@
 
 		$items["user/%user/account/history"]=array(
 			"title"=>t("History"),
-			"page callback"=>"cryptoaccounts_account_history",
+			"page callback"=>"blockchainaccounts_account_history",
 			"page arguments"=>array(1),
 			"access callback"=>TRUE,
 			"type"=>MENU_LOCAL_TASK,
@@ -74,9 +138,9 @@
 		);
 
 		// Configuration section on the configuration page.
-		$items['admin/config/cryptoaccounts']=array(
-			'title' => 'Cryptoaccounts',
-			'description' => 'Cryptoaccounts Configuration Section',
+		$items['admin/config/blockchainaccounts']=array(
+			'title' => 'blockchainaccounts',
+			'description' => 'blockchainaccounts Configuration Section',
 			'position' => 'right',
 			'weight' => -100,
 			'page callback' => 'system_admin_menu_block_page',
@@ -87,13 +151,21 @@
 
 		// Configuration page, accessible both from the 
 		// configuration and from the modules page. 
-		$items["admin/modules/cryptoaccounts"] = $items['admin/config/cryptoaccounts/item'] = array(
-			'title' => 'Cryptoaccounts',
-			'description' => 'Cryptoaccounts Configuration',
+		$items["admin/modules/blockchainaccounts"] = $items['admin/config/blockchainaccounts/item'] = array(
+			'title' => 'Blockchain Accounts',
+			'description' => 'Blockchain Accounts Configuration',
 			'page callback' => 'drupal_get_form',
 			'access arguments' => array('access administration pages'),
-			'page arguments' => array('cryptoaccounts_config_form'),
+			'page arguments' => array('blockchainaccounts_config_form'),
 			'type'=>MENU_NORMAL_ITEM,
+		);
+
+		$items["blockchainaccounts/notification"]=array(
+			"title"=>t("notifications"),
+			"page callback"=>"blockchainaccounts_notification",
+			"page arguments"=>array(1),
+			"access callback"=>TRUE,
+			"type"=>MENU_CALLBACK,
 		);
 
 		return $items;
@@ -102,23 +174,26 @@
 	/**
 	 * Configuration form.
 	 */
-	function cryptoaccounts_config_form($form, &$form_state) {
-		$form["cryptoaccounts_wallet_id"]=array(
+	function blockchainaccounts_config_form($form, &$form_state) {
+		$form["blockchainaccounts_wallet_id"]=array(
 			'#type' => 'textfield',
 			'#title' => t('Wallet Id'),
-			'#default_value' => variable_get('cryptoaccounts_wallet_id', ""),
+			'#default_value' => variable_get('blockchainaccounts_wallet_id', ""),
 			'#description' => t('Your wallet id at blockchain.info, or mocked url for testing.'),
 		);
 
-		$form["cryptoaccounts_wallet_password"]=array(
+		$form["blockchainaccounts_wallet_password"]=array(
 			'#type' => 'textfield',
 			'#title' => t('Wallet Password'),
-			'#default_value' => variable_get('cryptoaccounts_wallet_password', ""),
+			'#default_value' => variable_get('blockchainaccounts_wallet_password', ""),
 			'#description' => t('Your wallet password at blockchain.info.'),
 		);
 
-		$notificationUrl=url("hello",array(
-			"absolute"=>TRUE
+		$notificationUrl=url("blockchainaccounts/notification",array(
+			"absolute"=>TRUE,
+			"query"=>array(
+				"key"=>variable_get("blockchainaccounts_notification_key")
+			)
 		));
 
 		$t=
@@ -128,7 +203,7 @@
 			"<div class='description'>Configure blockchain.info to use this for wallet notifications</div>".
 			"</div>";
 
-		$form["netpoker_gameplay_server_info"]=array(
+		$form["notification_info"]=array(
 			"#markup"=>$t
 		);
 
@@ -138,37 +213,135 @@
 	/**
 	 * Account history.
 	 */
-	function cryptoaccounts_account_history() {
-		$content=cryptoaccounts_create_tab_content("History");
+	function blockchainaccounts_account_history() {
+		global $user;
+
+		$content=blockchainaccounts_create_tab_content("History");
+
+		$rows=array();
+
+		$c1=db_and()->condition("from_entity_type","user")->condition("from_entity_id",$user->uid);
+		$c2=db_and()->condition("to_entity_type","user")->condition("to_entity_id",$user->uid);
+		$condition=db_or()->condition($c1)->condition($c2);
+
+		$qrows=db_select("blockchainaccounts_transactions","t")
+			->fields("t")
+			->condition($condition)
+			->orderBy("timestamp","DESC")
+			->execute()
+			->fetchAll(PDO::FETCH_ASSOC);
+
+		foreach ($qrows as $qrow) {
+			$label=$qrow["label"];
+
+			if ($qrow["transaction_hash"]) {
+				$url="https://blockchain.info/tx/".$qrow["transaction_hash"];
+				$label.=", <a target='_blank' href='$url'>".mb_strimwidth($qrow["transaction_hash"],0,11,"...")."</a>";
+			}
+
+			if ($qrow["state"]=="confirming") {
+				$balance="N/A";
+				$state=$qrow["state"].", ".$qrow["confirmations"]."/".variable_get("blockchainaccounts_required_confirmations");
+			}
+
+			else {
+				$state=$qrow["state"];
+
+				if ($qrow["to_entity_type"]=="user" && $qrow["to_entity_id"]=$user->uid)
+					$balance=blockchainaccounts_format_amount($qrow["to_balance"]);
+
+				if ($qrow["from_entity_type"]=="user" && $qrow["from_entity_id"]=$user->uid)
+					$balance=blockchainaccounts_format_amount($qrow["from_balance"]);
+			}
+
+			$rows[]=array(
+				$label,
+				format_date($qrow["timestamp"],"short"),
+				blockchainaccounts_format_amount($qrow["amount"]),
+				$balance,
+				$state
+			);
+		}
 
 		$content["history"]=array(
 			'#theme' => 'table',
 			'#header' => array(t('Transaction'), t('Time'), t('Amount'), t('Balance'), t('Status')),
-			'#rows' => array(
+			'#rows' => $rows, /*array(
 				array('row1col1', 'row2col2', 'row1col1', 'row2col2', 'row1col1'),
 				array('row2col1', 'row2col2', 'row1col1', 'row2col2', 'row1col1'),
-			),
+			),*/
 		);
 
 		return $content;
 	}
 
 	/**
+	 * Get wallet url.
+	 */
+	function blockchainaccounts_getBlockchainWallet() {
+		static $wallet;
+
+		if (!$wallet)
+			$wallet=new BlockchainWallet(
+				variable_get("blockchainaccounts_wallet_id"),
+				variable_get("blockchainaccounts_wallet_password")
+			);
+
+		return $wallet;
+	}
+
+	/**
 	 * Deposit to account.
 	 */
-	function cryptoaccounts_account_deposit() {
-		drupal_add_js(drupal_get_path("module","cryptoaccounts")."/jquery.qrcode-0.12.0.min.js");
+	function blockchainaccounts_account_deposit() {
+		global $user;
 
-		$content=cryptoaccounts_create_tab_content("Deposit");
+		$user_data=user_load($user->uid);
+
+		if (!isset($user_data->field_blockchainaccounts_address[LANGUAGE_NONE][0]["value"])) {
+			$wallet=blockchainaccounts_getBlockchainWallet();
+
+			try {
+				$address=$wallet->createNewAddress();
+				echo "created address: ".$address;
+				$user_data->field_blockchainaccounts_address[LANGUAGE_NONE][0]["value"]=$address;
+				field_attach_update("user",$user_data);
+			}
+
+			catch (Exception $e) {
+				drupal_set_message(
+					"Unable to create deposit address, try again later.<br/>".$e->getMessage(),
+					"error");
+			}
+		}
+
+		$content=blockchainaccounts_create_tab_content("Deposit");
+
+		if (!isset($user_data->field_blockchainaccounts_address[LANGUAGE_NONE][0]["value"])) {
+			$content["not_available"]=array(
+				"#type"=>"markup",
+				"#markup"=>"Deposits are not available at this time, please try again later."
+			);
+
+			return $content;
+		}
+
+		$address=$user_data->field_blockchainaccounts_address[LANGUAGE_NONE][0]["value"];
+		$addressUrl="bitcoin://".$address;
+
+		drupal_add_js(drupal_get_path("module","blockchainaccounts")."/jquery.qrcode-0.12.0.min.js");
 
 		$content["container"]["deposit_address"]=array(
 			"#type"=>"user_profile_item",
 			"#title"=>"Deposit Address",
-			"#markup"=>l("asdfasdsdaf","bitcoin://wfawefawfawefawef"),
+			"#markup"=>"<a href='$addressUrl'>$address</a>",
 		);
 
-		$vars=array();
-		$templatePath=drupal_get_path("module","cryptoaccounts")."/depositaddress.tpl.php";
+		$vars=array(
+			"text"=>$addressUrl
+		);
+
+		$templatePath=drupal_get_path("module","blockchainaccounts")."/depositaddress.tpl.php";
 		$qrContent=theme_render_template($templatePath,$vars);
 
 		$content["deposit_qrcode"]=array(
@@ -179,7 +352,7 @@
 			"#type"=>"markup",
 			"#markup"=>
 				"<br>Send bitcoins to the address above in order to fund your account.<br/>".
-				"The funds will be available in your account after 3 confirmations and you.<br/>".
+				"The funds will be available in your account after 3 confirmations.<br/>".
 				"Can check the progress of the confirmations on the account history page."
 		);
 
@@ -189,8 +362,8 @@
 	/**
 	 * Withdraw from account.
 	 */
-	function cryptoaccounts_account_withdraw_form() {
-		$form=cryptoaccounts_create_tab_content("Withraw");
+	function blockchainaccounts_account_withdraw_form() {
+		$form=blockchainaccounts_create_tab_content("Withraw");
 
 		$form["address"]=array(
 			"#type"=>"textfield",
@@ -211,8 +384,8 @@
 			"#value"=>t("Withdraw")
 		);
 
-		$form["#validate"]=array("cryptoaccounts_account_withdraw_validate");
-		$form["#submit"]=array("cryptoaccounts_account_withdraw_submit");
+		$form["#validate"]=array("blockchainaccounts_account_withdraw_validate");
+		$form["#submit"]=array("blockchainaccounts_account_withdraw_submit");
 
 		return $form;
 	}
@@ -220,14 +393,14 @@
 	/**
 	 * Validate withdrawal request.
 	 */
-	function cryptoaccounts_account_withdraw_validate($form, &$form_state) {
+	function blockchainaccounts_account_withdraw_validate($form, &$form_state) {
 		//form_set_error("amount","You don't have any money");
 	}
 
 	/**
 	 * Process withdrawal request.
 	 */
-	function cryptoaccounts_account_withdraw_submit($form, &$form_state) {
+	function blockchainaccounts_account_withdraw_submit($form, &$form_state) {
 		drupal_set_message(
 			"Your withdrawal request has been received. ".
 			"Check progress on your account history page"
@@ -237,7 +410,7 @@
 	/**
 	 * Common things.
 	 */
-	function cryptoaccounts_create_tab_content($title) {
+	function blockchainaccounts_create_tab_content($title) {
 		$content=array(
 			"container"=>array(
 				"#type"=>"container",
@@ -259,4 +432,115 @@
 		);
 
 		return $content;
+	}
+
+	/**
+	 * Format amount.
+	 */
+	function blockchainaccounts_format_amount($amount) {
+		return number_format($amount/100,2)." bits";
+	}
+
+	/**
+	 * Blockchain notification.
+	 */
+	function blockchainaccounts_notification() {
+		if ($_REQUEST["key"]!=variable_get("blockchainaccounts_notification_key")) {
+			watchdog("blockchainaccounts","Notification: Wrong key",array(),WATCHDOG_WARNING);
+			exit();
+		}
+
+		$query = new EntityFieldQuery();
+		$query->entityCondition('entity_type','user')
+			->fieldCondition('field_blockchainaccounts_address','value',$_REQUEST["input_address"]);
+
+		$result = $query->execute();
+		$users_ids = array_keys($result['user']);		
+
+		if (!$users_ids) {
+			watchdog("blockchainaccounts","Notification: No matching user",array(),WATCHDOG_WARNING);
+			exit();
+		}
+
+		$user_id=$users_ids[0];
+		$transaction_hash=$_REQUEST["transaction_hash"];
+
+		$transaction=db_select("blockchainaccounts_transactions","t")
+			->fields("t")
+			->condition("transaction_hash",$transaction_hash)
+			->execute()
+			->fetchAssoc();
+
+		watchdog("blockchainaccounts","Current state: ".$transaction["state"]);
+
+		if ($transaction && $transaction["state"]=="complete") {
+			watchdog("blockchainaccounts","Notification: Already processed: ".$transaction_hash,array(),WATCHDOG_WARNING);
+
+			echo "*ok*";
+			return;
+		}
+
+		$confirmations=$_REQUEST["confirmations"];
+		$value=$_REQUEST["value"];
+
+		// Create or update the transaction.
+		if ($transaction) {
+			watchdog("blockchainaccounts","Notification: Updating: ".$transaction_hash);
+
+			$res=db_update("blockchainaccounts_transactions")
+				->fields(array(
+					"confirmations"=>$confirmations
+				))
+				->condition("transaction_hash",$transaction_hash)
+				->execute();
+
+			if ($res!=1)
+				watchdog("blockchainaccounts","Notification: expected one row, got: ".$res,array(),WATCHDOG_WARNING);
+		}
+
+		else {
+			watchdog("blockchainaccounts","Notification: Creating: ".$transaction_hash);
+
+			db_insert("blockchainaccounts_transactions")
+				->fields(array(
+					"label"=>"Deposit",
+					"to_entity_type"=>"user",
+					"to_entity_id"=>$user_id,
+					"transaction_hash"=>$transaction_hash,
+					"confirmations"=>$confirmations,
+					"amount"=>$value,
+					"state"=>"confirming",
+					"timestamp"=>REQUEST_TIME
+				))
+				->execute();
+		}
+
+		// Confirm it, if enough confirmations.
+		if ($confirmations>=variable_get("blockchainaccounts_required_confirmations")) {
+			watchdog("blockchainaccounts","Notification: Completing: ".$transaction_hash);
+
+			$users=entity_load("user",array($user_id));
+			$user=$users[$user_id];
+
+			$balance=0;
+
+			if (isset($user->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"]))
+				$balance=$user->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"];
+
+			$balance+=$value;
+
+			$user->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"]=$balance;
+			field_attach_update("user",$user);
+
+			$res=db_update("blockchainaccounts_transactions")
+				->fields(array(
+					"state"=>"complete",
+					"timestamp"=>REQUEST_TIME,
+					"to_balance"=>$balance
+				))
+				->condition("transaction_hash",$transaction_hash)
+				->execute();
+
+			echo "*ok*";
+		}
 	}

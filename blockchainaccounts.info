@@ -1,4 +1,4 @@
-name = Crypto Accounts
-description = A bank for crypto currency
+name = Blockchain Accounts
+description = A bank for bitcoin via blockchain.info
 core = 7.x
-configure = admin/modules/cryptoaccounts
+configure = admin/modules/blockchainaccounts

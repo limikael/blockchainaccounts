@@ -5,7 +5,7 @@
 		$('#cryptoaccounts-deposit-qrcode').qrcode({
 		    "size": 300,
    			"color": "#3a3",
-    		"text": "http://larsjung.de/qrcode"
+    		"text": "<?php echo $text; ?>"
 		});
 	});
 </script>
