@@ -66,6 +66,7 @@
 					"to_entity_id"=>array("type"=>"int"),
 					"to_balance"=>array("type"=>"int"),
 					"transaction_hash"=>array("type"=>"varchar","length"=>255),
+					"target_address"=>array("type"=>"varchar","length"=>255),
 					"confirmations"=>array("type"=>"int"),
 					"amount"=>array("type"=>"int"),
 					"state"=>array("type"=>"varchar","length"=>32),
@@ -234,9 +235,14 @@
 		foreach ($qrows as $qrow) {
 			$label=$qrow["label"];
 
+			if ($qrow["target_address"]) {
+				$url="https://blockchain.info/address/".$qrow["target_address"];
+				$label.=", <a target='_blank' href='$url'>".mb_strimwidth($qrow["target_address"],0,8,"...")."</a>";
+			}
+
 			if ($qrow["transaction_hash"]) {
 				$url="https://blockchain.info/tx/".$qrow["transaction_hash"];
-				$label.=", <a target='_blank' href='$url'>".mb_strimwidth($qrow["transaction_hash"],0,11,"...")."</a>";
+				$label.=", <a target='_blank' href='$url'>".mb_strimwidth($qrow["transaction_hash"],0,8,"...")."</a>";
 			}
 
 			if ($qrow["state"]=="confirming") {
@@ -254,10 +260,16 @@
 					$balance=blockchainaccounts_format_amount($qrow["from_balance"]);
 			}
 
+			if ($qrow["to_entity_type"]=="user" && $qrow["to_entity_id"]=$user->uid)
+				$amount=blockchainaccounts_format_amount($qrow["amount"]);
+
+			if ($qrow["from_entity_type"]=="user" && $qrow["from_entity_id"]=$user->uid)
+				$amount=blockchainaccounts_format_amount(-$qrow["amount"]);
+
 			$rows[]=array(
 				$label,
 				format_date($qrow["timestamp"],"short"),
-				blockchainaccounts_format_amount($qrow["amount"]),
+				$amount,
 				$balance,
 				$state
 			);
@@ -266,10 +278,7 @@
 		$content["history"]=array(
 			'#theme' => 'table',
 			'#header' => array(t('Transaction'), t('Time'), t('Amount'), t('Balance'), t('Status')),
-			'#rows' => $rows, /*array(
-				array('row1col1', 'row2col2', 'row1col1', 'row2col2', 'row1col1'),
-				array('row2col1', 'row2col2', 'row1col1', 'row2col2', 'row1col1'),
-			),*/
+			'#rows' => $rows
 		);
 
 		return $content;
@@ -368,14 +377,14 @@
 		$form["address"]=array(
 			"#type"=>"textfield",
 			"#title"=>"Address",
-			"#description"=>"Enter the bitcoin address to withdraw to",
+			"#description"=>"Enter the bitcoin address to withdraw to.",
 			"#required"=>TRUE
 		);
 
 		$form["amount"]=array(
 			"#type"=>"textfield",
 			"#title"=>"Amount",
-			"#description"=>"Enter the amount you want to withdraw",
+			"#description"=>"Enter the amount in bits you want to withdraw.",
 			"#required"=>TRUE
 		);
 
@@ -391,26 +400,101 @@
 	}
 
 	/**
+	 * Parse amount value from input.
+	 */
+	function blockchainaccounts_parse_amount($input) {
+		return 100*floatval($input);
+	}
+
+	/**
 	 * Validate withdrawal request.
 	 */
 	function blockchainaccounts_account_withdraw_validate($form, &$form_state) {
-		//form_set_error("amount","You don't have any money");
+		global $user;
+
+		$value=blockchainaccounts_parse_amount($form["amount"]["#value"]);
+
+		if ($value>blockchainaccounts_get_account_balance(array("uid"=>$user->uid)))
+			form_set_error("amount","This amount is higher than your balance.");
+
+		else if (!$value)
+			form_set_error("amount","Please enter the amount in bits you want to withdraw.");
 	}
 
 	/**
 	 * Process withdrawal request.
 	 */
 	function blockchainaccounts_account_withdraw_submit($form, &$form_state) {
+		global $user;
+
+		$amount=blockchainaccounts_parse_amount($form["amount"]["#value"]);
+		$balance=blockchainaccounts_change_balance(array("uid"=>$user->uid),-$amount);
+
+		db_insert("blockchainaccounts_transactions")
+			->fields(array(
+				"label"=>"Withdrawal",
+				"from_entity_type"=>"user",
+				"from_entity_id"=>$user->uid,
+				"from_balance"=>$balance,
+				"amount"=>$amount,
+				"target_address"=>$form["address"]["#value"],
+				"state"=>"scheduled",
+				"timestamp"=>REQUEST_TIME
+			))
+			->execute();
+
 		drupal_set_message(
 			"Your withdrawal request has been received. ".
-			"Check progress on your account history page"
+			"Check progress on your account history page."
 		);
+	}
+
+	/**
+	 * Perform and log transaction.
+	 */
+	function blockchainaccounts_transaction($from, $to, $amount, $label) {
+
+	}
+
+	/**
+	 * Change the account balance.
+	 */
+	function blockchainaccounts_change_balance($accountspec, $amount) {
+		if ($accountspec["uid"]) {
+			$users=entity_load("user",array($accountspec["uid"]));
+			$user=$users[$accountspec["uid"]];
+
+			if (!$user)
+				throw new Exception("Unknown account.");
+
+			$balance=0;
+
+			if (isset($user->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"]))
+				$balance=$user->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"];
+
+			if ($amount>$balance)
+				throw new Exception("Not enough funds.");
+
+			$balance+=$amount;
+
+			$user->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"]=$balance;
+			field_attach_update("user",$user);
+
+			return $balance;
+		}
+
+		throw new Exception("Unknown account.");
 	}
 
 	/**
 	 * Common things.
 	 */
 	function blockchainaccounts_create_tab_content($title) {
+		global $user;
+
+		$balance_str=blockchainaccounts_format_amount(
+				blockchainaccounts_get_account_balance(array("uid"=>$user->uid)));
+
 		$content=array(
 			"container"=>array(
 				"#type"=>"container",
@@ -421,7 +505,7 @@
 				"balance"=>array(
 					"#type"=>"user_profile_item",
 					"#title"=>"Current Balance",
-					"#markup"=>"BTC 11.123123"
+					"#markup"=>$balance_str
 				),
 
 				"category"=>array(
@@ -543,4 +627,31 @@
 
 			echo "*ok*";
 		}
+	}
+
+	/**
+	 * Return the current balance of the specified account.
+	 */
+	function blockchainaccounts_get_account_balance($accountspec) {
+		if ($accountspec["uid"]) {
+			$users=entity_load("user",array($accountspec["uid"]));
+			$user=$users[$accountspec["uid"]];
+
+			if (!$user)
+				return FALSE;
+
+			$balance=0;
+
+			if (isset($user->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"]))
+				$balance=$user->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"];
+
+			return $balance;
+		}
+
+		else if ($accountspec["nid"]) {
+
+		}
+
+		else
+			return FALSE;
 	}
