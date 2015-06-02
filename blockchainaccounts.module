@@ -381,7 +381,9 @@
 			"#type"=>"markup",
 			"#markup"=>
 				"<br>Send bitcoins to the address above in order to fund your account.<br/>".
-				"The funds will be available in your account after 3 confirmations.<br/>".
+				"The funds will be available in your account after ".
+				variable_get("blockchainaccounts_required_confirmations").
+				" confirmations.<br/>".
 				"Can check the progress of the confirmations on the account history page."
 		);
 
