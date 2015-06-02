@@ -7,6 +7,8 @@
 	 * Enable.
 	 */
 	function blockchainaccounts_enable() {
+		//echo "enable module!!!\n";
+
 		if (!field_info_field("field_blockchainaccounts_balance")) {
 			$field=array(
 				"field_name"=>"field_blockchainaccounts_balance",
@@ -91,6 +93,9 @@
 	function blockchainaccounts_field_access($op, $field, $type, $entity) {
 		if ($field["field_name"]=="field_blockchainaccounts_balance")
 			return FALSE;
+
+		if ($field["field_name"]=="field_blockchainaccounts_address")
+			return FALSE;
 	}
 
 	/**
@@ -129,13 +134,22 @@
 			"weight"=>2
 		);
 
+		$items["user/%user/account/transfer"]=array(
+			"title"=>t("Transfer"),
+			"page callback"=>"drupal_get_form",
+			"page arguments"=>array("blockchainaccounts_account_transfer_form"),
+			"access callback"=>TRUE,
+			"type"=>MENU_LOCAL_TASK,
+			"weight"=>3
+		);
+
 		$items["user/%user/account/history"]=array(
 			"title"=>t("History"),
 			"page callback"=>"blockchainaccounts_account_history",
 			"page arguments"=>array(1),
 			"access callback"=>TRUE,
 			"type"=>MENU_LOCAL_TASK,
-			"weight"=>3
+			"weight"=>4
 		);
 
 		// Configuration section on the configuration page.
@@ -190,6 +204,13 @@
 			'#description' => t('Your wallet password at blockchain.info.'),
 		);
 
+		$form["blockchainaccounts_notification_key"]=array(
+			'#type' => 'textfield',
+			'#title' => t('Notifications Key'),
+			'#default_value' => variable_get('blockchainaccounts_notification_key'),
+			'#description' => t('Key to accept for wallet notifications.'),
+		);
+
 		$notificationUrl=url("blockchainaccounts/notification",array(
 			"absolute"=>TRUE,
 			"query"=>array(
@@ -233,7 +254,7 @@
 			->fetchAll(PDO::FETCH_ASSOC);
 
 		foreach ($qrows as $qrow) {
-			$label=$qrow["label"];
+			$label=$qrow["id"].". ".$qrow["label"];
 
 			if ($qrow["target_address"]) {
 				$url="https://blockchain.info/address/".$qrow["target_address"];
@@ -253,23 +274,23 @@
 			else {
 				$state=$qrow["state"];
 
-				if ($qrow["to_entity_type"]=="user" && $qrow["to_entity_id"]=$user->uid)
-					$balance=blockchainaccounts_format_amount($qrow["to_balance"]);
+				if ($qrow["to_entity_type"]=="user" && $qrow["to_entity_id"]==$user->uid)
+					$balance=blockchainaccounts_from_satoshi("bits",$qrow["to_balance"])." bits";
 
-				if ($qrow["from_entity_type"]=="user" && $qrow["from_entity_id"]=$user->uid)
-					$balance=blockchainaccounts_format_amount($qrow["from_balance"]);
+				if ($qrow["from_entity_type"]=="user" && $qrow["from_entity_id"]==$user->uid)
+					$balance=blockchainaccounts_from_satoshi("bits",$qrow["from_balance"])." bits";
 			}
 
-			if ($qrow["to_entity_type"]=="user" && $qrow["to_entity_id"]=$user->uid)
-				$amount=blockchainaccounts_format_amount($qrow["amount"]);
+			if ($qrow["to_entity_type"]=="user" && $qrow["to_entity_id"]==$user->uid)
+				$amount=blockchainaccounts_from_satoshi("bits",$qrow["amount"]);
 
-			if ($qrow["from_entity_type"]=="user" && $qrow["from_entity_id"]=$user->uid)
-				$amount=blockchainaccounts_format_amount(-$qrow["amount"]);
+			if ($qrow["from_entity_type"]=="user" && $qrow["from_entity_id"]==$user->uid)
+				$amount=blockchainaccounts_from_satoshi("bits",-$qrow["amount"]);
 
 			$rows[]=array(
 				$label,
 				format_date($qrow["timestamp"],"short"),
-				$amount,
+				$amount." bits",
 				$balance,
 				$state
 			);
@@ -312,7 +333,6 @@
 
 			try {
 				$address=$wallet->createNewAddress();
-				echo "created address: ".$address;
 				$user_data->field_blockchainaccounts_address[LANGUAGE_NONE][0]["value"]=$address;
 				field_attach_update("user",$user_data);
 			}
@@ -369,6 +389,100 @@
 	}
 
 	/**
+	 * Transfer from.
+	 */
+	function blockchainaccounts_account_transfer_form() {
+		$form=blockchainaccounts_create_tab_content("Transfer");
+
+		$form["username"]=array(
+			"#type"=>"textfield",
+			"#title"=>"User",
+			"#description"=>"Enter the username of the user you want to transfer funds to.",
+			"#required"=>TRUE
+		);
+
+		$form["amount"]=array(
+			"#type"=>"textfield",
+			"#title"=>"Amount",
+			"#description"=>"Enter the amount in bits you want to transfer.",
+			"#required"=>TRUE
+		);
+
+		$form["transfer_button"]=array(
+			"#type"=>"submit",
+			"#value"=>t("Transfer")
+		);
+
+		$form["#validate"]=array("blockchainaccounts_account_transfer_validate");
+		$form["#submit"]=array("blockchainaccounts_account_transfer_submit");
+
+		return $form;
+	}
+
+	/**
+	 * Validate transfer.
+	 */
+	function blockchainaccounts_account_transfer_validate($form, &$form_state) {
+		global $user;
+
+		$value=$form["amount"]["#value"];
+		$username=$form["username"]["#value"];
+
+		if ($value>blockchainaccounts_get_balance("bits",array("uid"=>$user->uid)))
+			form_set_error("amount","This amount is higher than your balance.");
+
+		else if (!$value)
+			form_set_error("amount","Please enter the amount in bits you want to withdraw.");
+
+		$touser=user_load_by_name($username);
+		if (!$touser) {
+			$allow_transfer_to_node=TRUE;
+
+			if ($allow_transfer_to_node && node_load_multiple(array(), array("title"=>$username)))
+				drupal_set_message("That's a node");
+
+			else
+				form_set_error("username","User not found: ".$form["username"]["#value"]);
+		}
+	}
+
+	/**
+	 * Perform transfer.
+	 */
+	function blockchainaccounts_account_transfer_submit($form, &$form_state) {
+		global $user;
+
+		$amount=$form["amount"]["#value"];
+		$username=$form["username"]["#value"];
+
+		$touser=user_load_by_name($username);
+
+		if ($touser) {
+			$toaccount=array(
+				"uid"=>$touser->uid
+			);
+		}
+
+		else {
+			$nodes=node_load_multiple(array(), array("title"=>$username));
+			$node_id=array_keys($nodes)[0];
+
+			if ($node_id) {
+				$toaccount=array(
+					"nid"=>$node_id
+				);
+			}
+		}
+
+		blockchainaccounts_transaction("bits",array("uid"=>$user->uid),$toaccount,$amount,"Local Transfer");
+
+		drupal_set_message(
+			"Your transfer to ".$username." of ".$amount." bits has been performed.\n".
+			"Check account history page for details."
+		);
+	}
+
+	/**
 	 * Withdraw from account.
 	 */
 	function blockchainaccounts_account_withdraw_form() {
@@ -400,21 +514,14 @@
 	}
 
 	/**
-	 * Parse amount value from input.
-	 */
-	function blockchainaccounts_parse_amount($input) {
-		return 100*floatval($input);
-	}
-
-	/**
 	 * Validate withdrawal request.
 	 */
 	function blockchainaccounts_account_withdraw_validate($form, &$form_state) {
 		global $user;
 
-		$value=blockchainaccounts_parse_amount($form["amount"]["#value"]);
+		$value=$form["amount"]["#value"];
 
-		if ($value>blockchainaccounts_get_account_balance(array("uid"=>$user->uid)))
+		if ($value>blockchainaccounts_get_balance("bits",array("uid"=>$user->uid)))
 			form_set_error("amount","This amount is higher than your balance.");
 
 		else if (!$value)
@@ -427,16 +534,16 @@
 	function blockchainaccounts_account_withdraw_submit($form, &$form_state) {
 		global $user;
 
-		$amount=blockchainaccounts_parse_amount($form["amount"]["#value"]);
-		$balance=blockchainaccounts_change_balance(array("uid"=>$user->uid),-$amount);
+		$amount=$form["amount"]["#value"];
+		$balance=blockchainaccounts_change_balance("bits",array("uid"=>$user->uid),-$amount);
 
 		db_insert("blockchainaccounts_transactions")
 			->fields(array(
 				"label"=>"Withdrawal",
 				"from_entity_type"=>"user",
 				"from_entity_id"=>$user->uid,
-				"from_balance"=>$balance,
-				"amount"=>$amount,
+				"from_balance"=>blockchainaccounts_to_satoshi("bits",$balance),
+				"amount"=>blockchainaccounts_to_satoshi("bits",$amount),
 				"target_address"=>$form["address"]["#value"],
 				"state"=>"scheduled",
 				"timestamp"=>REQUEST_TIME
@@ -452,15 +559,67 @@
 	/**
 	 * Perform and log transaction.
 	 */
-	function blockchainaccounts_transaction($from, $to, $amount, $label) {
+	function blockchainaccounts_transaction($denomination, $from, $to, $amount, $label) {
+		$from_balance=blockchainaccounts_get_balance($denomination,$from);
+		$to_balance=blockchainaccounts_get_balance($denomination,$to);
 
+		if ($amount>$from_balance)
+			throw new Exception("Not enough balance, balance=".$from_balance);
+
+		$from_balance=blockchainaccounts_change_balance($denomination, $from, -$amount);
+		$to_balance=blockchainaccounts_change_balance($denomination, $to, $amount);
+
+		$from_info=blockchainaccounts_expand_account_info($from);
+		$to_info=blockchainaccounts_expand_account_info($to);
+
+		$id=db_insert("blockchainaccounts_transactions")
+			->fields(array(
+				"label"=>$label,
+				"from_entity_type"=>$from_info["entity_type"],
+				"from_entity_id"=>$from_info["entity_id"],
+				"from_balance"=>blockchainaccounts_to_satoshi($denomination,$from_balance),
+				"to_entity_type"=>$to_info["entity_type"],
+				"to_entity_id"=>$to_info["entity_id"],
+				"to_balance"=>blockchainaccounts_to_satoshi($denomination,$to_balance),
+				"amount"=>blockchainaccounts_to_satoshi($denomination,$amount),
+				"state"=>"complete",
+				"timestamp"=>REQUEST_TIME
+			))
+			->execute();
+
+		if (!$id)
+			throw new Exception("Unable to perform transaction");
+
+		return $id;
+	}
+
+	/**
+	 *
+	 */
+	function blockchainaccounts_expand_account_info($accountinfo) {
+		if (isset($accountinfo["uid"]))
+			return array(
+				"uid"=>$accountinfo["uid"],
+				"entity_type"=>"user",
+				"entity_id"=>$accountinfo["uid"]
+			);
+
+		else if (isset($accountinfo["nid"]))
+			return array(
+				"nid"=>$accountinfo["nid"],
+				"entity_type"=>"node",
+				"entity_id"=>$accountinfo["nid"]
+			);
+
+		else
+			throw new Exception("Unknown account");
 	}
 
 	/**
 	 * Change the account balance.
 	 */
-	function blockchainaccounts_change_balance($accountspec, $amount) {
-		if ($accountspec["uid"]) {
+	function blockchainaccounts_change_balance($denomination, $accountspec, $amount) {
+		if (isset($accountspec["uid"])) {
 			$users=entity_load("user",array($accountspec["uid"]));
 			$user=$users[$accountspec["uid"]];
 
@@ -472,15 +631,46 @@
 			if (isset($user->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"]))
 				$balance=$user->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"];
 
-			if ($amount>$balance)
-				throw new Exception("Not enough funds.");
+			if ($amount<0 && -blockchainaccounts_to_satoshi($denomination,$amount)>$balance)
+				throw new Exception("Not enough funds, balance=".$balance);
 
-			$balance+=$amount;
+			$balance+=blockchainaccounts_to_satoshi($denomination,$amount);
 
 			$user->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"]=$balance;
 			field_attach_update("user",$user);
 
-			return $balance;
+			return blockchainaccounts_from_satoshi($denomination,$balance);
+		}
+
+		else if (isset($accountspec["nid"])) {
+			$nodes=entity_load("node",array($accountspec["nid"]));
+			$node=$nodes[$accountspec["nid"]];
+
+			if (!field_info_instance("node","field_blockchainaccounts_balance",$node->type)) {
+				$instance=array(
+					"field_name"=>"field_blockchainaccounts_balance",
+					"entity_type"=>"node",
+					"bundle"=>$node->type,
+					"label"=>"Bitcoin Balance"
+				);
+
+				field_create_instance($instance);
+			}
+
+			$balance=0;
+
+			if (isset($node->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"]))
+				$balance=$node->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"];
+
+			if ($amount<0 && -blockchainaccounts_to_satoshi($denomination,$amount)>$balance)
+				throw new Exception("Not enough funds for node account, balance=".$balance);
+
+			$balance+=blockchainaccounts_to_satoshi($denomination,$amount);
+
+			$node->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"]=$balance;
+			field_attach_update("node",$node);
+
+			return blockchainaccounts_from_satoshi($denomination,$balance);
 		}
 
 		throw new Exception("Unknown account.");
@@ -492,8 +682,7 @@
 	function blockchainaccounts_create_tab_content($title) {
 		global $user;
 
-		$balance_str=blockchainaccounts_format_amount(
-				blockchainaccounts_get_account_balance(array("uid"=>$user->uid)));
+		$balance_str=blockchainaccounts_get_balance("bits",array("uid"=>$user->uid))." bits";
 
 		$content=array(
 			"container"=>array(
@@ -516,13 +705,6 @@
 		);
 
 		return $content;
-	}
-
-	/**
-	 * Format amount.
-	 */
-	function blockchainaccounts_format_amount($amount) {
-		return number_format($amount/100,2)." bits";
 	}
 
 	/**
@@ -630,10 +812,64 @@
 	}
 
 	/**
+	 * Convert to satoshi.
+	 */
+	function blockchainaccounts_to_satoshi($denomination, $amount) {
+		switch (strtolower($denomination)) {
+			case "satoshi":
+				return $amount;
+				break;
+
+			case "bits":
+				return $amount*100;
+				break;
+
+			case "mbtc":
+				return $amount*100000;
+				break;
+
+			case "btc":
+				return $amount*100000000;
+				break;
+
+			default:
+				throw new Exception("Unknown denomination: ".$denomination);
+				return;
+		}
+	}
+
+	/**
+	 * Convert from satoshi.
+	 */
+	function blockchainaccounts_from_satoshi($denomination, $amount) {
+		switch (strtolower($denomination)) {
+			case "satoshi":
+				return $amount;
+				break;
+
+			case "bits":
+				return $amount/100;
+				break;
+
+			case "mbtc":
+				return $amount/100000;
+				break;
+
+			case "btc":
+				return $amount/100000000;
+				break;
+
+			default:
+				throw new Exception("Unknown denomination: ".$denomination);
+				return;
+		}
+	}
+
+	/**
 	 * Return the current balance of the specified account.
 	 */
-	function blockchainaccounts_get_account_balance($accountspec) {
-		if ($accountspec["uid"]) {
+	function blockchainaccounts_get_balance($denomination, $accountspec) {
+		if (isset($accountspec["uid"])) {
 			$users=entity_load("user",array($accountspec["uid"]));
 			$user=$users[$accountspec["uid"]];
 
@@ -645,13 +881,24 @@
 			if (isset($user->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"]))
 				$balance=$user->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"];
 
-			return $balance;
+			return blockchainaccounts_from_satoshi($denomination,$balance);
 		}
 
-		else if ($accountspec["nid"]) {
+		else if (isset($accountspec["nid"])) {
+			$nodes=entity_load("node",array($accountspec["nid"]));
+			$node=$nodes[$accountspec["nid"]];
 
+			if (!$node)
+				return FALSE;
+
+			$balance=0;
+
+			if (isset($node->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"]))
+				$balance=$node->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"];
+
+			return blockchainaccounts_from_satoshi($denomination,$balance);
 		}
 
 		else
-			return FALSE;
+			throw new Exception("Account not found");
 	}

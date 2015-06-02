@@ -1,0 +1,55 @@
+<?php
+
+	class BlockchainaccountsTestCase extends DrupalWebTestCase {
+		protected $profile = 'minimal';
+
+		public static function getInfo() {
+			return array(
+				'name' => 'Blockchainaccounts Test',
+				'description' => "Tests test blockchainaccounts module",
+				'group' => 'blockchainaccounts',
+			);
+		}
+
+		public function setUp() {
+			parent::setUp(array("blockchainaccounts"));
+		}
+
+		function testUserAccount() {
+			global $user;
+
+			$balance=blockchainaccounts_get_balance("bits",array("uid"=>$user->uid));
+			$this->assertIdentical($balance,0);
+
+			$user->field_blockchainaccounts_balance[LANGUAGE_NONE][0]["value"]=10000;
+			$balance=blockchainaccounts_get_balance("bits",array("uid"=>$user->uid));
+			$this->assertIdentical($balance,100);
+			$balance=blockchainaccounts_get_balance("satoshi",array("uid"=>$user->uid));
+			$this->assertIdentical($balance,10000);
+		}
+
+		function testTransaction() {
+			global $user;
+
+			$balance=blockchainaccounts_get_balance("bits",array("uid"=>$user->uid));
+			$this->assertIdentical($balance,0);
+
+			blockchainaccounts_change_balance("bits",array("uid"=>$user->uid),100);
+
+			$balance=blockchainaccounts_get_balance("satoshi",array("uid"=>$user->uid));
+			$this->assertIdentical($balance,10000);
+
+			$node=$this->drupalCreateNode();
+
+			$balance=blockchainaccounts_get_balance("bits",array("nid"=>$node->nid));
+			$this->assertIdentical($balance,0);
+
+			blockchainaccounts_transaction("bits",array("uid"=>$user->uid),array("nid"=>$node->nid),10,"transaction");
+
+			$balance=blockchainaccounts_get_balance("bits",array("uid"=>$user->uid));
+			$this->assertIdentical($balance,90);
+
+			$balance=blockchainaccounts_get_balance("bits",array("nid"=>$node->nid));
+			$this->assertIdentical($balance,10);
+		}
+	}

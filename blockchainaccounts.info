@@ -2,3 +2,5 @@ name = Blockchain Accounts
 description = A bank for bitcoin via blockchain.info
 core = 7.x
 configure = admin/modules/blockchainaccounts
+files[] = blockchainaccounts.test
+dependencies[] = number
