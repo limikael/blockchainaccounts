@@ -4,6 +4,13 @@
 	require_once __DIR__."/utils/CurlUtil.php";
 
 	/**
+	 * Public functions for other modules to use:
+	 *
+	 * blockchainaccounts_get_balance($denomination, $accountspec)
+	 * blockchainaccounts_transaction($denomination, $from, $to, $amount, $label)
+	 */
+
+	/**
 	 * Enable.
 	 */
 	function blockchainaccounts_enable() {
@@ -562,6 +569,9 @@
 	 * Perform and log transaction.
 	 */
 	function blockchainaccounts_transaction($denomination, $from, $to, $amount, $label) {
+		if ($amount<0)
+			throw new Exception("Can't make a transaction with negative amount");
+
 		$from_balance=blockchainaccounts_get_balance($denomination,$from);
 		$to_balance=blockchainaccounts_get_balance($denomination,$to);
 

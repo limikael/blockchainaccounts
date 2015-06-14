@@ -52,4 +52,24 @@
 			$balance=blockchainaccounts_get_balance("bits",array("nid"=>$node->nid));
 			$this->assertIdentical($balance,10);
 		}
+
+		function testNegativeAmountTransaction() {
+			global $user;
+
+			$balance=blockchainaccounts_get_balance("bits",array("uid"=>$user->uid));
+			$this->assertIdentical($balance,0);
+			blockchainaccounts_change_balance("bits",array("uid"=>$user->uid),100);
+
+			$node=$this->drupalCreateNode();
+			$balance=blockchainaccounts_get_balance("bits",array("nid"=>$node->nid));
+			$this->assertIdentical($balance,0);
+
+			try {
+				blockchainaccounts_transaction("bits",array("uid"=>$user->uid),array("nid"=>$node->nid),-10,"transaction");
+				$this->fail("expected exception");
+			}
+
+			catch (Exception $e) {
+			}
+		}
 	}
